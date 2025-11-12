@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>EDGE LIF – Concierge Robot</title>
+  <style>
+    /* ===================== THEME + RESET ===================== */
+    :root{
+      --bg:#0b0f14;         /* deep charcoal */
+      --card:#121821;       /* card surface */
+      --muted:#1b2430;      /* subtle panels */
+      --accent:#FF6A00;     /* EDGE orange */
+      --teal:#00D1B2;       /* teal accent */
+      --text:#e8eef5;       /* high contrast */
+      --text-dim:#b7c1cf;   /* muted text */
+      --ok:#3ddc84;         /* ok green */
+      --shadow: 0 12px 40px rgba(0,0,0,.35);
+      --radius: 18px;
+
+      /* PillNav tokens (can be themed) */
+      --base:#0a0a0a;       /* nav base (logo bg & hover circle) */
+      --pill-bg:#ffffff;    /* pill background */
+      --pill-text:#000000;  /* pill text */
+      --hover-text:#ffffff; /* text when hovered */
+
+      --nav-h:44px;
+      --logo:36px;
+      --pill-pad-x:18px;
+      --pill-gap:4px;
+    }
+    *{ box-sizing:border-box; } html,body{ height:100%; }
+    body{
+      margin:0; color:var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+      overflow:hidden; /* single page kiosk */
+      /* --- Animated gradient backdrop --- */
+      background: conic-gradient(at 0% 50%, #1c1d24 0%, #4a2a1a 20%, #1c1d24 35%, #2e3034 65%, #1c1d24 80%, #0c0d12 100%);
+      background-size:200% 200%;
+      animation: panBackground 60s linear infinite alternate;
+    }
+    @keyframes panBackground { 0%{background-position:0% 0%} 100%{background-position:100% 100%} }
+
+    /* Moving mesh canvas layer */
+    .bg-mesh{ position:fixed; inset:0; z-index:-1; overflow:hidden; }
+    canvas#mesh{ width:100%; height:100%; display:block; }
+
+    /* ===================== HEADER + NAV ===================== */
+    header{
+      display:flex; align-items:center; gap:14px; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,.06);
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0));
+    }
+    .logo{
+      width:44px; height:44px; border-radius:12px; display:grid; place-items:center; background:linear-gradient(135deg, var(--accent), #ff944d);
+      font-weight:800; color:#0b0f14; box-shadow: var(--shadow);
+    }
+    .title{ font-size:20px; font-weight:800; }
+    .subtitle{ font-size:13px; color:var(--text-dim); }
+    .space{ flex:1; }
+
+    /* Pill navigation (vanilla CSS version of your GSAP style) */
+    .pill-nav-container{ position:absolute; top:12px; right:12px; z-index:9; }
+    .pill-nav{ display:flex; align-items:center; gap:8px; }
+    .pill-strip{ display:flex; align-items:center; height:var(--nav-h); background:var(--base); border-radius:9999px; padding:3px; }
+    .pill-logo{ width:var(--nav-h); height:var(--nav-h); border-radius:50%; background:var(--base); padding:8px; display:inline-grid; place-items:center; overflow:hidden; }
+    .pill-logo img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .pill-list{ list-style:none; display:flex; align-items:stretch; gap:var(--pill-gap); margin:0; padding:0; height:100%; }
+    .pill-list > li{ display:flex; height:100%; }
+    .pill{ position:relative; display:inline-flex; align-items:center; justify-content:center; height:100%; padding:0 var(--pill-pad-x); border-radius:9999px; background:var(--pill-bg); color:var(--pill-text); font-weight:700; font-size:14px; letter-spacing:.2px; text-transform:uppercase; cursor:pointer; overflow:hidden; border:none; }
+    .pill .hover-circle{ position:absolute; left:50%; bottom:0; width:0; height:0; border-radius:50%; background:var(--base); transform:translateX(-50%) scale(0); transition: transform .35s ease, width 0s .35s, height 0s .35s; }
+    .pill:hover .hover-circle{ width:140%; height:140%; transform:translateX(-50%) scale(1); transition: transform .35s ease; }
+    .pill .label-stack{ position:relative; z-index:2; line-height:1; }
+    .pill .pill-label{ transition: transform .35s ease; }
+    .pill:hover .pill-label{ transform: translateY(-140%); }
+    .pill .pill-label-hover{ position:absolute; left:0; top:0; color:var(--hover-text); transform: translateY(140%); transition: transform .35s ease, opacity .35s ease; opacity:0; }
+    .pill:hover .pill-label-hover{ transform: translateY(0); opacity:1; }
+    .pill.is-active::after{ content:''; position:absolute; bottom:-6px; left:50%; transform:translateX(-50%); width:12px; height:12px; background:var(--base); border-radius:50px; }
+
+    /* Voice status pills */
+    .status{ margin-left:8px; border-radius:9999px; padding:6px 10px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); font-size:12px; }
+    .status.listen{ background:rgba(61,220,132,.12); border-color:rgba(61,220,132,.4); }
+    .status.speak{ background:rgba(255,106,0,.12); border-color:rgba(255,106,0,.5); }
+
+    /* ===================== LAYOUT ===================== */
+    .wrap{ display:grid; grid-template-columns: 1.4fr .9fr; gap:16px; padding:16px; height: calc(100% - 70px); }
+    .card{ background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.08); border-radius:var(--radius); box-shadow: var(--shadow); position:relative; overflow:hidden; }
+
+    /* Map card */
+    .map-card{ display:grid; grid-template-rows: auto 1fr auto; }
+    .map-toolbar{ display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.06); }
+    .chip{ background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); padding:8px 12px; border-radius:999px; font-size:13px; cursor:pointer; transition:.15s transform; }
+    .chip:hover{ transform: translateY(-1px); }
+    .chip.active{ background: linear-gradient(135deg, rgba(255,106,0,.18), rgba(255,106,0,.05)); border-color: rgba(255,106,0,.5); }
+
+    .map-container{ position:relative; }
+    .floor{ width:100%; height:100%; object-fit:contain; display:block; }
+    .overlay{ position:absolute; inset:0; pointer-events:none; }
+    .hotspot{ position:absolute; border-radius:10px; outline:2px dashed rgba(255,255,255,.2); background:rgba(255,255,255,.02); pointer-events:auto; cursor:pointer; }
+    .hotspot:focus{ outline-color: rgba(255,106,0,.8); }
+    .poi-badge{ position:absolute; background:rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.2); padding:4px 8px; border-radius:999px; font-size:12px; pointer-events:none; backdrop-filter: blur(6px); }
+
+    .map-footer{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-top:1px solid rgba(255,255,255,.06); }
+    .route-summary{ font-size:14px; color:var(--text-dim); }
+    .qr-area{ display:flex; align-items:center; gap:12px; }
+    .qr-button{ border:none; border-radius:12px; padding:10px 12px; font-weight:700; cursor:pointer; background:linear-gradient(135deg, rgba(255,106,0,.22), rgba(255,255,255,.03)); border:1px solid rgba(255,106,0,.6); color:var(--text); }
+    .qr-panel{ width:120px; height:120px; border:1px dashed rgba(255,255,255,.15); border-radius:12px; display:grid; place-items:center; background:rgba(255,255,255,.03); opacity:0; transform:scale(.96); transition: opacity .28s ease, transform .28s ease; pointer-events:none; }
+    .qr-panel.show{ opacity:1; transform:scale(1); }
+
+    /* Side card */
+    .side-card{ display:grid; grid-template-rows: auto 1fr auto; }
+    .side-top{ padding:12px; border-bottom:1px solid rgba(255,255,255,.06); display:flex; align-items:center; gap:10px; }
+    .info-feed{ position:absolute; right:12px; bottom:12px; width: 92%; display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; }
+    .tile{ background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.1); border-radius:14px; padding:10px; min-height:84px; font-size:13px; color:var(--text-dim); }
+
+    /* Panels */
+    .panel{ position:absolute; inset:0; padding:12px; overflow:auto; background:rgba(10,10,10,.6); backdrop-filter: blur(10px); display:none; }
+    .panel.show{ display:block; }
+
+    /* Modal */
+    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
+    .modal.show{ display:flex; }
+    .modal-card{ width: min(560px, 92vw); background: var(--card); border:1px solid rgba(255,255,255,.1); border-radius:18px; box-shadow: var(--shadow); padding:16px; }
+    .field{ display:grid; gap:6px; margin:10px 0; }
+    input, select{ background: var(--muted); border:1px solid rgba(255,255,255,.12); color:var(--text); padding:12px; border-radius:12px; font-size:15px; }
+    .btn{ background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:10px 12px; text-align:center; font-weight:700; cursor:pointer; }
+    .btn.primary{ background: linear-gradient(135deg, rgba(255,106,0,.22), rgba(255,255,255,.03)); border-color:rgba(255,106,0,.6); }
+
+    /* RTL tweaks */
+    :root[dir="rtl"] .pill-nav-container{ left:12px; right:auto; }
+    :root[dir="rtl"] .pill-nav{ flex-direction: row-reverse; }
+    :root[dir="rtl"] .pill-strip{ flex-direction: row-reverse; }
+    :root[dir="rtl"] .info-feed{ right:auto; left:12px; }
+
+    @media (max-width: 1100px){ .wrap{ grid-template-columns: 1fr; grid-template-rows: 1fr .9fr; } }
+    @media (prefers-reduced-motion: reduce){ .qr-panel{ transition:none } .pill .hover-circle, .pill .pill-label, .pill .pill-label-hover{ transition:none } body{ animation:none } }
+  </style>
+</head>
+<body>
+  <!-- Animated mesh layer -->
+  <div class="bg-mesh"><canvas id="mesh"></canvas></div>
+
+  <header>
+    <div class="logo" aria-hidden="true">E</div>
+    <div>
+      <div class="title" id="appTitle">EDGE LIF Concierge</div>
+      <div class="subtitle" id="welcomeLine">Welcome to EDGE! Where would you like to go today?</div>
+    </div>
+    <div class="space"></div>
+    <!-- Pill Navigation (Home, Find, News, Offices, Lang, Mic) -->
+    <div class="pill-nav-container" id="pillNav">
+      <nav class="pill-nav" aria-label="Primary">
+        <a class="pill-logo" id="homeBtn" aria-label="Home"><img alt="EDGE" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Crect width='100%25' height='100%25' rx='128' ry='128' fill='%230a0a0a'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='140' font-weight='700' fill='%23ffffff'%3EE%3C/text%3E%3C/svg%3E"/></a>
+        <div class="pill-strip">
+          <ul class="pill-list">
+            <li><button id="pillFind" class="pill" aria-controls="findModal" aria-expanded="false"><span class="hover-circle" aria-hidden="true"></span><span class="label-stack"><span class="pill-label" id="pillFindText">Find my room</span><span class="pill-label-hover" aria-hidden="true">Find my room</span></span></button></li>
+            <li><button id="pillNews" class="pill" aria-controls="newsPanel" aria-expanded="false"><span class="hover-circle" aria-hidden="true"></span><span class="label-stack"><span class="pill-label" id="pillNewsText">What's new at EDGE?</span><span class="pill-label-hover" aria-hidden="true">What's new at EDGE?</span></span></button></li>
+            <li><button id="pillOffices" class="pill" aria-controls="officesPanel" aria-expanded="false"><span class="hover-circle" aria-hidden="true"></span><span class="label-stack"><span class="pill-label" id="pillOfficesText">Offices</span><span class="pill-label-hover" aria-hidden="true">Offices</span></span></button></li>
+            <li><button id="pillLang" class="pill" aria-label="Switch language"><span class="hover-circle" aria-hidden="true"></span><span class="label-stack"><span class="pill-label" id="pillLangText">العربية</span><span class="pill-label-hover" aria-hidden="true">العربية</span></span></button></li>
+            <li><button id="toggle" class="pill" aria-label="Toggle voice"><span class="hover-circle" aria-hidden="true"></span><span class="label-stack"><span class="pill-label">Mic</span><span class="pill-label-hover" aria-hidden="true">Mic</span></span></button></li>
+          </ul>
+        </div>
+        <span id="vstat" class="status">Idle</span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- MAP CARD -->
+    <section class="card map-card" aria-label="Interactive map">
+      <div class="map-toolbar" id="mapToolbar">
+        <div class="chip active" data-dest="entrance" id="chipEntrance">Entrance</div>
+        <div class="chip" data-dest="classroomA">Classroom A</div>
+        <div class="chip" data-dest="meeting">Meeting Room</div>
+        <div class="chip" data-dest="vip">VIP Lounge</div>
+        <div class="chip" data-dest="robotics">Robotics Lab</div>
+        <div class="space"></div>
+        <div class="qr-area">
+          <button class="qr-button" id="qrBtn">Send to my phone</button>
+          <div id="qrcode" class="qr-panel" aria-live="polite" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <div class="map-container" id="mapContainer">
+        <!-- Floor image -->
+        <img id="floorImg" class="floor" alt="EDGE LIF floor" src="assets/floor.jpg"/>
+        <!-- SVG overlay for routes/arrows; sized by script to match image box -->
+        <svg id="overlaySvg" class="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+
+        <!-- Example POI badges (positions updated by script) -->
+        <div id="poi1" class="poi-badge" style="left:50%; top:45%">Innovation Wall</div>
+        <div id="poi2" class="poi-badge" style="left:65%; top:70%">Drone Display</div>
+      </div>
+
+      <div class="map-footer">
+        <div class="route-summary" id="routeSummary">Tap a destination to see the path.</div>
+        <div class="row">
+          <span class="status">Kiosk • Offline Ready</span>
+          <span class="status">Last update: <span id="lastUpdate"></span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SIDE CARD: Panels + tiles -->
+    <aside class="card side-card" aria-label="Panels and feed">
+      <div class="side-top">
+        <strong id="sideTitle">Panels</strong>
+        <div class="space"></div>
+        <button class="btn" id="closePanels">Close</button>
+      </div>
+      <!-- News Panel -->
+      <div id="newsPanel" class="panel" aria-labelledby="newsTitle">
+        <div class="row" style="margin-bottom:8px">
+          <strong id="newsTitle">Updates</strong>
+        </div>
+        <div id="newsList" style="display:grid; gap:10px;"></div>
+      </div>
+      <!-- Offices Panel -->
+      <div id="officesPanel" class="panel" aria-labelledby="officesTitle">
+        <div class="row" style="margin-bottom:8px; gap:8px; align-items:center">
+          <strong id="officesTitle">Offices</strong>
+          <div class="space"></div>
+          <input id="officeSearch" type="text" placeholder="Search offices" style="max-width:260px"/>
+        </div>
+        <div id="officesList" style="display:grid; gap:8px;"></div>
+      </div>
+
+      <!-- Dynamic tiles anchored bottom-right/left -->
+      <div class="info-feed" id="tiles"></div>
+
+      <div style="padding:12px; border-top:1px solid rgba(255,255,255,.06)">
+        <small class="subtitle">Tip: The robot can speak directions if Mic is on.</small>
+      </div>
+    </aside>
+  </main>
+
+  <!-- FIND MODAL -->
+  <div id="findModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="findTitle">
+    <div class="modal-card">
+      <div class="row" style="margin-bottom:8px; display:flex; align-items:center; gap:8px">
+        <div>
+          <div id="findTitle" class="title" style="font-size:18px">Find my room</div>
+          <div class="subtitle" id="findSub">Enter a room name or pick from the list</div>
+        </div>
+        <div class="space"></div>
+        <button class="btn" id="closeFind" style="padding:6px 10px">Close</button>
+      </div>
+      <div class="field">
+        <label for="roomInput" class="subtitle" id="roomLabel">Room</label>
+        <input id="roomInput" type="text" placeholder="e.g., Robotics Lab" />
+      </div>
+      <div class="field">
+        <label class="subtitle" id="selectLabel">Or select</label>
+        <select id="roomSelect"></select>
+      </div>
+      <div class="row" style="margin-top:10px; display:flex; align-items:center; gap:8px">
+        <div class="space"></div>
+        <button class="btn primary" id="goRoom">Show Route</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========= QRCode (tiny inlined table renderer) ========= -->
+  <script>
+  /*! qrcode.js v1.0.0 (c) 2016 David Shim | MIT | trimmed */
+  (function(o){function p(a){this.mode=c.MODE_8BIT_BYTE;this.data=a}function q(a,b){this.typeNumber=a;this.errorCorrectLevel=b;this.modules=null;this.moduleCount=0;this.dataCache=null;this.dataList=[]}var c={PAD0:236,PAD1:17,MODE_NUMBER:1,MODE_ALPHA_NUM:2,MODE_8BIT_BYTE:4,MODE_KANJI:8,ErrorCorrectionLevel:{L:1,M:0,Q:3,H:2}},r={getRSBlocks:function(){return[[26,19]]}},u=function(a,b){this.buffer=0;this.length=0;this.data=[];null!=a&&null!=b&&this.put(a,b)};u.prototype.put=function(a,b){for(var d=b-1;0<=d;d--)this.putBit(a>>>d&1)};u.prototype.putBit=function(a){this.buffer=this.buffer<<1|a;8==++this.length&&(this.data.push(this.buffer),this.length=0,this.buffer=0)};q.prototype={addData:function(a){this.dataList.push(new p(a));this.dataCache=null},make:function(){this.typeNumber=1;this.moduleCount=21;this.modules=Array(this.moduleCount);for(var a=0;a<this.moduleCount;a++){this.modules[a]=Array(this.moduleCount);for(var b=0;b<this.moduleCount;b++)this.modules[a][b]=null}this.setup(0,0);this.setup(this.moduleCount-7,0);this.setup(0,this.moduleCount-7);this.mapData(this.createData())},setup:function(a,b){for(var d=-1;7>=d;d++)if(!(0>a+d||this.moduleCount<=a+d))for(var e=-1;7>=e;e++)0>b+e||this.moduleCount<=b+e||(this.modules[a+d][b+e]=0<=d&&d<=6&&(0==e||6==e)||0<=e&&e<=6&&(0==d||6==d)||2<=d&&d<=4&&2<=e&&e<=4)},mapData:function(a){for(var b=0,d=0,e=this.moduleCount-1,f=this.moduleCount-1;0<=f;f-=2){6==f&&f--;for(var g=0;g<this.moduleCount;g++){var h=e>=0?f:f-1,k=e>=0?g:this.moduleCount-1-g;null==this.modules[k][h]&&(d<b.length?this.modules[k][h]=1==(a[d]>>>7-g&1):this.modules[k][h]=!1);null==this.modules[k][h-1]&&(d<b.length?this.modules[k][h-1]=1==(a[d]>>>7-g&1):this.modules[k][h-1]=!1)}e*=-1;b+=this.moduleCount}},createData:function(){var a=new u;for(var b=0;b<this.dataList.length;b++){var d=this.dataList[b];a.put(c.MODE_8BIT_BYTE,4);a.put(d.data.length,8);for(var e=0;e<d.data.length;e++)a.put(d.data.charCodeAt(e),8)}for(a.put(c.PAD0,8);a.length%8!=0;)a.put(0,1);for(;a.data.length<19;)a.data.push(c.PAD0),a.data.length<19&&a.data.push(c.PAD1);return a.data}};function v(a,b){this._el=a;this._htOption=b}v.prototype.makeCode=function(a){this._oQRCode=new q(1,c.ErrorCorrectionLevel.M);this._oQRCode.addData(a);this._oQRCode.make();this._el.innerHTML="";var b=document.createElement("table");b.cellPadding=0;b.cellSpacing=0;var d=this._oQRCode.moduleCount;for(var e=0;e<d;e++){for(var f=document.createElement("tr"),g=0;g<d;g++){var h=document.createElement("td");h.style.width=h.style.height="5px";h.style.backgroundColor=this._oQRCode.modules[e][g]?"#000":"#fff";f.appendChild(h)}b.appendChild(f)}this._el.appendChild(b)};window.QRCode=v;})(this);
+  </script>
+
+  <!-- ========= Main App Script ========= -->
+  <script type="module">
+    import { wirePage, VoiceAgent, ChatClient, detectLangHeuristic } from './voice-agent.js';
+
+    /* ====== Animated mesh background ====== */
+    const canvas = document.getElementById('mesh');
+    const ctx = canvas.getContext('2d');
+    function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
+    addEventListener('resize', resize); resize();
+    const pts = Array.from({length:50}, () => ({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, dx:(Math.random()-.5)*0.5, dy:(Math.random()-.5)*0.5 }));
+    function drawMesh(){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      pts.forEach(p=>{ p.x+=p.dx; p.y+=p.dy; if(p.x<0||p.x>canvas.width) p.dx*=-1; if(p.y<0||p.y>canvas.height) p.dy*=-1; ctx.beginPath(); ctx.arc(p.x,p.y,2,0,Math.PI*2); ctx.fill(); });
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){ const dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y, d=Math.hypot(dx,dy); if(d<120){ ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y); ctx.lineTo(pts[j].x,pts[j].y); ctx.stroke(); } }
+      requestAnimationFrame(drawMesh);
+    } drawMesh();
+
+    /* ====== I18N ====== */
+    const I18N = {
+      en: { app_title:'EDGE LIF Concierge', welcome:'Welcome to EDGE! Where would you like to go today?', find:'Find my room', news:"What's new at EDGE?", offices:'Offices', lang:'العربية', qr_btn:'Send to my phone', qr_need:'Choose a destination first.', updates:'Updates', close:'Close', panels:'Panels', find_title:'Find my room', find_sub:'Enter a room name or pick from the list', room_placeholder:'e.g., Robotics Lab', select_label:'Or select', show_route:'Show Route', map_hint:'Tap a destination to see the path.', summary_follow:'{dest}: follow the highlighted path.', summary_with_poi:'{dest}: follow the highlighted path. On your way, you\'ll pass {poi}.', entrance:'Entrance', classroomA:'Classroom A', meeting:'Meeting Room', vip:'VIP Lounge', robotics:'Robotics Lab', offices_title:'Offices', office_search:'Search offices' },
+      ar: { app_title:'خدمة الاستقبال – EDGE LIF', welcome:'مرحبًا بكم في EDGE! إلى أين تودّ الذهاب اليوم؟', find:'اعثر على غرفتي', news:'آخر أخبار EDGE', offices:'المكاتب', lang:'EN', qr_btn:'أرسل إلى هاتفي', qr_need:'يرجى اختيار وجهة أولًا.', updates:'التحديثات', close:'إغلاق', panels:'لوحات', find_title:'اعثر على غرفتي', find_sub:'أدخل اسم الغرفة أو اختر من القائمة', room_placeholder:'مثال: مختبر الروبوتات', select_label:'أو اختر', show_route:'عرض المسار', map_hint:'اضغط على وجهة لعرض المسار.', summary_follow:'{dest}: اتبع المسار المضاء.', summary_with_poi:'{dest}: اتبع المسار المضاء. في الطريق ستمر بـ {poi}.', entrance:'المدخل', classroomA:'قاعة الدراسة A', meeting:'غرفة الاجتماعات', vip:'صالة كبار الشخصيات', robotics:'مختبر الروبوتات', offices_title:'المكاتب', office_search:'ابحث عن مكتب' }
+    };
+
+    const state = { lang: localStorage.getItem('lang')||'en', currentDest:null, qr:null };
+
+    /* ====== DATA (adjust hotspots/waypoints to your image) ====== */
+    const DESTINATIONS = [
+      { id:'entrance', label_en:'Entrance', label_ar:'المدخل', hotspot:{x:5, y:75, w:10, h:12}, route:[{x:8,y:81}] },
+      { id:'classroomA', label_en:'Classroom A', label_ar:'قاعة الدراسة A', hotspot:{x:78, y:10, w:18, h:16}, route:[{x:8,y:81},{x:30,y:70},{x:78,y:18}] },
+      { id:'meeting', label_en:'Meeting Room', label_ar:'غرفة الاجتماعات', hotspot:{x:78, y:36, w:18, h:16}, route:[{x:8,y:81},{x:30,y:60},{x:78,y:44}] },
+      { id:'vip', label_en:'VIP Lounge', label_ar:'صالة كبار الشخصيات', hotspot:{x:78, y:62, w:18, h:16}, route:[{x:8,y:81},{x:55,y:70},{x:78,y:70}] },
+      { id:'robotics', label_en:'Robotics Lab', label_ar:'مختبر الروبوتات', hotspot:{x:52, y:62, w:16, h:16}, route:[{x:8,y:81},{x:55,y:70}] }
+    ];
+
+    const OFFICES = [
+      { id:'director_office', label_en:"Director's Office", label_ar:'مكتب المدير', hotspot:{x:66,y:18,w:10,h:10}, route:[{x:8,y:81},{x:30,y:60},{x:60,y:30},{x:70,y:22}] },
+      { id:'it_office', label_en:'IT Office', label_ar:'مكتب تقنية المعلومات', hotspot:{x:44,y:16,w:10,h:10}, route:[{x:8,y:81},{x:28,y:55},{x:46,y:20}] },
+      { id:'trainers_office', label_en:"Trainers' Office", label_ar:'مكتب المدربين', hotspot:{x:58,y:62,w:12,h:10}, route:[{x:8,y:81},{x:36,y:66},{x:60,y:66}] }
+    ];
+
+    const NEWS = [
+      { en:'New Drone Prototype demo at 2 PM in Robotics Lab.', ar:'عرض نموذج طائرة بدون طيار الساعة 2 ظهرًا في مختبر الروبوتات.' },
+      { en:'3D printing workshop at 4 PM in Classroom A.', ar:'ورشة الطباعة ثلاثية الأبعاد الساعة 4 مساءً في قاعة الدراسة A.' },
+      { en:'Welcome VIPs from EDGE HQ at 11 AM near Reception.', ar:'نرحب بضيوف VIP من مقر EDGE الساعة 11 صباحًا قرب الاستقبال.' },
+      { en:'Safety: Wear eye protection in labs.', ar:'السلامة: يرجى ارتداء نظارات واقية داخل المختبرات.' }
+    ];
+    const TILES = [ 'Next: IoT crash course 1:30 PM', 'Scan the QR to keep the route', 'Innovation Wall → robotics timeline', 'Refreshments near VIP Lounge', 'Wi‑Fi Guest: EDGE‑Visitor (ask reception)' ];
+
+    /* ====== Helpers ====== */
+    const $ = (s, r=document)=>r.querySelector(s); const $$ = (s, r=document)=>Array.from(r.querySelectorAll(s));
+    const qs = (o,k)=>o?.[k];
+    const t = (key)=> I18N[state.lang][key] || key;
+    const dirEl = document.documentElement;
+
+    /* ====== Initialize static text ====== */
+    function applyLang(){
+      dirEl.lang = state.lang === 'ar' ? 'ar' : 'en';
+      dirEl.setAttribute('dir', state.lang==='ar'?'rtl':'ltr');
+      $('#appTitle').textContent = t('app_title');
+      $('#welcomeLine').textContent = t('welcome');
+      $('#pillFindText').textContent = t('find');
+      $('#pillNewsText').textContent = t('news');
+      $('#pillOfficesText').textContent = t('offices');
+      $('#pillLangText').textContent = t('lang');
+      $('#findTitle').textContent = t('find_title');
+      $('#findSub').textContent = t('find_sub');
+      $('#roomInput').placeholder = t('room_placeholder');
+      $('#selectLabel').textContent = t('select_label');
+      $('#goRoom').textContent = t('show_route');
+      $('#routeSummary').textContent = t('map_hint');
+      $('#newsTitle').textContent = t('updates');
+      $('#sideTitle').textContent = t('panels');
+      $('#officeSearch').placeholder = t('office_search');
+      $('#qrBtn').textContent = t('qr_btn');
+      // Toolbar chips
+      $$('#mapToolbar .chip').forEach(ch=>{
+        const d = ch.getAttribute('data-dest'); ch.textContent = t(d) || d;
+      });
+    }
+
+    /* ====== Overlay + hotspots sizing ====== */
+    const floorImg = $('#floorImg'); const overlaySvg = $('#overlaySvg');
+    function sizeOverlay(){ overlaySvg.setAttribute('viewBox', `0 0 ${floorImg.clientWidth} ${floorImg.clientHeight}`); }
+    addEventListener('resize', sizeOverlay);
+    floorImg.addEventListener('load', sizeOverlay);
+
+    /* ====== Render hotspots ====== */
+    const mapContainer = $('#mapContainer');
+    function pctRect({x,y,w,h}){ const W=mapContainer.clientWidth, H=mapContainer.clientHeight; return {left:`${x}%`, top:`${y}%`, width:`${w}%`, height:`${h}%`}; }
+    function renderHotspots(){
+      // clear old
+      $$('.hotspot', mapContainer).forEach(h=>h.remove());
+      [...DESTINATIONS, ...OFFICES].forEach(item=>{
+        if(!item.hotspot) return; const hs=document.createElement('button'); hs.className='hotspot'; hs.style.left=pctRect(item.hotspot).left; hs.style.top=pctRect(item.hotspot).top; hs.style.width=pctRect(item.hotspot).width; hs.style.height=pctRect(item.hotspot).height; hs.title = state.lang==='ar'? item.label_ar : item.label_en; hs.addEventListener('click', ()=> selectDestination(item.id)); mapContainer.appendChild(hs);
+      });
+    }
+
+    /* ====== Draw route ====== */
+    function drawRoute(points){
+      overlaySvg.innerHTML = '';
+      if(!points?.length) return;
+      const W = floorImg.clientWidth, H = floorImg.clientHeight;
+      const pts = points.map(p=> `${(p.x/100)*W},${(p.y/100)*H}`).join(' ');
+      const defs = `<defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff8a3d"/>
+        </marker>
+        <linearGradient id="routeGlow" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#ff8a3d"/>
+          <stop offset="100%" stop-color="#ffd7bf"/>
+        </linearGradient>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+          <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>`;
+      const path = `<polyline points="${pts}" stroke="url(#routeGlow)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none" style="filter:url(#glow)" marker-mid="url(#arrow)"/>`;
+      overlaySvg.insertAdjacentHTML('beforeend', defs+path);
+    }
+
+    /* ====== Selection, QR, POI ====== */
+    const routeSummary = $('#routeSummary');
+    function setSummary(dest, pois){
+      const name = state.lang==='ar'? dest.label_ar : dest.label_en;
+      if(pois?.length){
+        const poiText = pois.map(p=> state.lang==='ar'? (p.name_ar||p.name_en) : (p.name_en||p.name_ar)).join(state.lang==='ar'? ' و ': ' and ');
+        routeSummary.textContent = (state.lang==='ar'? I18N.ar.summary_with_poi : I18N.en.summary_with_poi).replace('{dest}', name).replace('{poi}', poiText);
+      } else {
+        routeSummary.textContent = (state.lang==='ar'? I18N.ar.summary_follow : I18N.en.summary_follow).replace('{dest}', name);
+      }
+    }
+
+    const qrBtn = $('#qrBtn'); const qrPane = $('#qrcode');
+    let qr;
+    function ensureQR(){ if(!qr){ qr = new QRCode(qrPane, {}); } }
+    function updateQR(url){ ensureQR(); qr.makeCode(url); }
+
+    function showQR(show){
+      if(show){ qrPane.classList.add('show'); qrPane.setAttribute('aria-hidden','false'); }
+      else { qrPane.classList.remove('show'); qrPane.setAttribute('aria-hidden','true'); }
+    }
+
+    qrBtn.addEventListener('click', ()=>{
+      if(!state.currentDest){ toast(t('qr_need')); return; }
+      const label = state.lang==='ar'? state.currentDest.label_ar : state.currentDest.label_en;
+      const url = `https://edge-lif.local/route?dest=${encodeURIComponent(label)}&lang=${state.lang}`;
+      updateQR(url);
+      showQR(true);
+      // auto-hide after 12s unless hovered
+      let hideTO = setTimeout(()=>{ if(!qrPane.matches(':hover')) showQR(false); }, 12000);
+      qrPane.addEventListener('mouseenter', ()=>{ clearTimeout(hideTO); });
+    });
+
+    /* ====== Toast (simple) ====== */
+    function toast(msg){
+      const el = document.createElement('div'); el.textContent = msg; el.style.position='fixed'; el.style.left='50%'; el.style.bottom='24px'; el.style.transform='translateX(-50%)'; el.style.background='rgba(0,0,0,.7)'; el.style.border='1px solid rgba(255,255,255,.2)'; el.style.padding='10px 14px'; el.style.borderRadius='12px'; el.style.zIndex='1000'; document.body.appendChild(el); setTimeout(()=>{ el.remove(); }, 1800);
+    }
+
+    /* ====== Chips + Find modal ====== */
+    const chips = $$('#mapToolbar .chip');
+    chips.forEach(ch=>{ ch.tabIndex = 0; ch.addEventListener('click', ()=>selectDestination(ch.getAttribute('data-dest'))); });
+
+    function populateRoomSelect(){ const sel=$('#roomSelect'); sel.innerHTML=''; DESTINATIONS.filter(d=>d.id!=='entrance').forEach(d=>{ const opt=document.createElement('option'); opt.value=d.id; opt.textContent = state.lang==='ar'? d.label_ar : d.label_en; sel.appendChild(opt); }); }
+    function toggleFind(show){ $('#findModal').classList.toggle('show', !!show); if(show) setTimeout(()=>$('#roomInput').focus(), 60); }
+    $('#pillFind').addEventListener('click', ()=>{ populateRoomSelect(); toggleFind(true); });
+    $('#closeFind').addEventListener('click', ()=> toggleFind(false));
+    $('#goRoom').addEventListener('click', ()=>{ const input=$('#roomInput').value.trim().toLowerCase(); const sel=$('#roomSelect').value; let target=null; if(input){ target=[...DESTINATIONS,...OFFICES].find(d=> (d.label_en.toLowerCase()===input) || (d.label_ar===input) || d.id===input); } if(!target && sel){ target=DESTINATIONS.find(d=>d.id===sel); } if(target){ toggleFind(false); selectDestination(target.id); } });
+    $('#roomInput').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#goRoom').click(); });
+
+    /* ====== News + Tiles ====== */
+    function renderNews(){ const list=$('#newsList'); list.innerHTML=''; NEWS.forEach(n=>{ const item=document.createElement('div'); item.className='tile'; const text = state.lang==='ar'? n.ar : n.en; item.innerHTML = `<strong style="color:var(--text)">${t('updates')}</strong><div class="subtitle" style="margin-top:6px">${text}</div>`; list.appendChild(item); }); }
+    function renderTiles(){ const tiles=$('#tiles'); tiles.innerHTML=''; TILES.slice(0,3).forEach(tl=> tiles.appendChild(tile(tl))); let i=3; setInterval(()=>{ const first=tiles.firstElementChild; if(first) tiles.removeChild(first); tiles.appendChild(tile(TILES[i % TILES.length])); i++; }, 4000); }
+    function tile(text){ const el=document.createElement('div'); el.className='tile'; el.textContent=text; return el; }
+
+    function openPanel(id){ ['newsPanel','officesPanel'].forEach(pid=> $('#'+pid).classList.toggle('show', pid===id)); }
+    $('#pillNews').addEventListener('click', ()=>{ renderNews(); openPanel('newsPanel'); });
+    $('#closePanels').addEventListener('click', ()=>{ openPanel(null); });
+
+    /* ====== Offices directory ====== */
+    function renderOffices(list=OFFICES){ const cont=$('#officesList'); cont.innerHTML=''; list.forEach(o=>{ const card=document.createElement('div'); card.className='tile'; const name = state.lang==='ar'? o.label_ar : o.label_en; card.innerHTML = `<div style="display:flex; align-items:center; gap:8px"><strong style="color:var(--text)">${name}</strong><div class="space"></div><button class="btn primary">${state.lang==='ar'?'إرشاد':'Guide me'}</button></div>`; const btn=card.querySelector('button'); btn.addEventListener('click', ()=> selectDestination(o.id)); cont.appendChild(card); }); }
+    $('#pillOffices').addEventListener('click', ()=>{ renderOffices(); openPanel('officesPanel'); });
+    $('#officeSearch').addEventListener('input', (e)=>{ const q=e.target.value.toLowerCase(); const list=OFFICES.filter(o=> (o.label_en.toLowerCase().includes(q) || o.label_ar.includes(q))); renderOffices(list); });
+
+    /* ====== Selection core ====== */
+    function selectDestination(id){
+      const d = [...DESTINATIONS, ...OFFICES].find(x=>x.id===id); if(!d) return;
+      state.currentDest = d;
+      drawRoute(d.route);
+      setSummary(d, d.pois);
+      // Speak (via voice agent if on)
+      try{ window.__voiceAgent?.speak((state.lang==='ar'? 'وجهتك هي ' : 'Your destination is ') + (state.lang==='ar'? d.label_ar : d.label_en) + '.', { lang: state.lang }); }catch(e){}
+      // ensure QR hides on new selection
+      showQR(false);
+    }
+
+    /* ====== Voice Agent wiring ====== */
+    const agent = wirePage({});
+    // keep ASR/TTS languages in sync with UI
+    function syncVoiceLang(){ agent?.setRecognitionLanguage(state.lang==='ar'?'ar-SA':'en-US'); agent?.setTTSLanguage(state.lang); }
+
+    // Simple intent catcher (runs on window for demo)
+    window.addEventListener('voice:final', (ev)=>{
+      const text = (ev.detail||'').toLowerCase();
+      // Destinations & offices by name
+      for(const d of [...DESTINATIONS, ...OFFICES]){
+        const nameEn = d.label_en.toLowerCase();
+        const nameAr = d.label_ar; // not lowercased for Arabic
+        if(text.includes(nameEn) || text.includes(d.id) || (nameAr && text.includes(nameAr))) { selectDestination(d.id); return; }
+      }
+      if(/send .*phone|qr|scan/i.test(text) || /أرسل|هاتف/i.test(text)){ if(!state.currentDest) toast(t('qr_need')); else { updateQR(`https://edge-lif.local/route?dest=${encodeURIComponent(state.lang==='ar'? state.currentDest.label_ar : state.currentDest.label_en)}&lang=${state.lang}`); showQR(true);} return; }
+      if(/news|what's new|updates/i.test(text) || /أخبار|تحديثات/i.test(text)){ renderNews(); openPanel('newsPanel'); return; }
+      if(/office|director|it|trainer/i.test(text) || /مكتب|المدير|تقنية|مدربين/.test(text)){ renderOffices(); openPanel('officesPanel'); return; }
+    });
+
+    /* ====== Language toggle ====== */
+    $('#pillLang').addEventListener('click', ()=>{ state.lang = state.lang==='en'?'ar':'en'; localStorage.setItem('lang', state.lang); applyLang(); populateRoomSelect(); renderHotspots(); syncVoiceLang(); });
+
+    /* ====== Home, dates, init ====== */
+    $('#homeBtn').addEventListener('click', ()=>{ drawRoute(null); state.currentDest=null; routeSummary.textContent=t('map_hint'); showQR(false); openPanel(null); });
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleDateString(state.lang==='ar'?'ar':'en');
+
+    function boot(){ applyLang(); sizeOverlay(); renderHotspots(); renderTiles(); populateRoomSelect(); syncVoiceLang(); }
+    boot();
+
+    // Chips initial text
+    $('#chipEntrance').textContent = t('entrance');
+  </script>
+
+  <!-- ========= Minimal Voice UI hooks for auto-wire ========= -->
+  <div class="blob" style="position:fixed; inset:auto 16px 16px auto; width:1px; height:1px; overflow:hidden"><h1>v</h1></div>
+</body>
+</html>
